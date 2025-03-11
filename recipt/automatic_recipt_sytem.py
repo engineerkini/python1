@@ -2,6 +2,7 @@ import sys
 import sqlite3
 from datetime import datetime
 from escpos.printer import Usb
+import os
 
 class ReceiptPrinter:
     def __init__(self, usb_vendor_id, usb_product_id, usb_interface):
@@ -55,23 +56,88 @@ class ReceiptPrinter:
         except Exception as e:
             print(f"Error printing receipt: {e}")
 
-def fetch_company_data(company_name):
-    conn = sqlite3.connect('receipt_system.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT id, vat_rate FROM companies WHERE name = ?", (company_name,))
-    company = cursor.fetchone()
-    conn.close()
-    return company
 
-def fetch_packages(company_id):
-    conn = sqlite3.connect('receipt_system.db')
-    cursor = conn.cursor()
-    cursor.execute("SELECT name, price, quantity FROM packages WHERE company_id = ?", (company_id,))
-    packages = cursor.fetchall()
-    conn.close()
-    return [{"name": p[0], "price": p[1], "quantity": p[2]} for p in packages]
+class DatabaseHandler:
+    def __init__(self, db_path='receipt_system.db'):
+        self.db_path = db_path
+        self.create_database_if_not_exists()
 
-if __name__ == "__main__":
+    def create_database_if_not_exists(self):
+        if not os.path.exists(self.db_path):
+            print(f"Database '{self.db_path}' not found. Creating database...")
+            self.create_database()
+
+    def create_database(self):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+
+            # Create companies table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS companies (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                name TEXT NOT NULL,
+                vat_rate REAL NOT NULL
+            )
+            ''')
+
+            # Create packages table
+            cursor.execute('''
+            CREATE TABLE IF NOT EXISTS packages (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                company_id INTEGER,
+                name TEXT NOT NULL,
+                price REAL NOT NULL,
+                quantity INTEGER NOT NULL,
+                FOREIGN KEY (company_id) REFERENCES companies(id)
+            )
+            ''')
+
+            # Insert sample company and packages if not exists
+            cursor.execute("INSERT OR IGNORE INTO companies (name, vat_rate) VALUES ('My Store', 20.0)")
+            conn.commit()
+
+            cursor.execute("SELECT id FROM companies WHERE name = 'My Store'")
+            company_id = cursor.fetchone()[0]
+
+            # Insert sample packages for the company
+            cursor.execute("INSERT OR IGNORE INTO packages (company_id, name, price, quantity) VALUES (?, 'Package 1', 10.00, 5)", (company_id,))
+            cursor.execute("INSERT OR IGNORE INTO packages (company_id, name, price, quantity) VALUES (?, 'Package 2', 20.00, 3)", (company_id,))
+            conn.commit()
+
+            conn.close()
+            print(f"Database '{self.db_path}' and tables created successfully.")
+
+        except sqlite3.DatabaseError as e:
+            print(f"Error creating database: {e}")
+            sys.exit(1)
+
+    def fetch_company_data(self, company_name):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT id, vat_rate FROM companies WHERE name = ?", (company_name,))
+            company = cursor.fetchone()
+            conn.close()
+            return company
+        except sqlite3.DatabaseError as e:
+            print(f"Error fetching company data: {e}")
+            return None
+
+    def fetch_packages(self, company_id):
+        try:
+            conn = sqlite3.connect(self.db_path)
+            cursor = conn.cursor()
+            cursor.execute("SELECT name, price, quantity FROM packages WHERE company_id = ?", (company_id,))
+            packages = cursor.fetchall()
+            conn.close()
+            return [{"name": p[0], "price": p[1], "quantity": p[2]} for p in packages]
+        except sqlite3.DatabaseError as e:
+            print(f"Error fetching packages: {e}")
+            return []
+
+
+def main():
     company_name = "My Store"  # Change to your company name
     payment_method = "Credit Card"
 
@@ -80,14 +146,20 @@ if __name__ == "__main__":
     usb_product_id = 0x0202
     usb_interface = 0
 
-    company = fetch_company_data(company_name)
+    db_handler = DatabaseHandler()
+
+    company = db_handler.fetch_company_data(company_name)
     if not company:
         print(f"Company {company_name} not found in database.")
         sys.exit(1)
 
     company_id, vat_rate = company
-    items = fetch_packages(company_id)
+    items = db_handler.fetch_packages(company_id)
     total_amount = sum(item['quantity'] * item['price'] for item in items)
 
     printer = ReceiptPrinter(usb_vendor_id, usb_product_id, usb_interface)
     printer.print_receipt(company_name, items, total_amount, vat_rate, payment_method)
+
+
+if __name__ == "__main__":
+    main()
