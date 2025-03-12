@@ -1,4 +1,3 @@
-# test_usb_import.py
 from escpos.printer import Usb
 import usb.core
 
@@ -16,8 +15,11 @@ try:
     usb_product_id = 0x0202  # Example: Epson Product ID
     usb_interface = 0  # USB interface ID (usually 0)
 
+    # Try initializing the printer
     printer = Usb(usb_vendor_id, usb_product_id, usb_interface)
-    printer.set(align='center', width=2, height=2, text_type='B')
+    
+    # Testing the printer (adjust to your printer's commands if necessary)
+    printer.set(align='center', width=2, height=2)  # Removed 'text_type' for compatibility
     printer.text("Test Print\n")
     printer.cut()
     print("Printer initialized and printed successfully!")
